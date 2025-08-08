@@ -6,8 +6,8 @@ from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-from .config import load_config
-from .lines import LineManager
+from config import load_config
+from lines import LineManager
 
 router = Router()
 lines = LineManager()
