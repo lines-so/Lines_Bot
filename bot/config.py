@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import os
+from dotenv import load_dotenv
 
 
 @dataclass
@@ -10,6 +11,7 @@ class Config:
 
 def load_config() -> Config:
     """Load configuration from environment variables."""
+    load_dotenv()
     token = os.environ.get("BOT_TOKEN")
     if not token:
         raise RuntimeError("BOT_TOKEN environment variable is required")
