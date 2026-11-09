@@ -1,0 +1,16 @@
+{
+  "name": "idehban",
+  "main": "worker/index.mjs",
+  "compatibility_date": "2026-11-09",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "idehban-waitlist",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "migrations_dir": "worker/migrations"
+    }
+  ],
+  "assets": {
+    "directory": "./webapp"
+  }
+}

@@ -1,24 +1,62 @@
 # ایده بان
 
-نسخه فعلی ربات فارسی ایده بان برای ثبت نام در لیست انتظار است. کاربر در چت خصوصی با `/start` شروع می کند و در یک خط می نویسد برای چه کاری می خواهد از ربات استفاده کند. هر شناسه تلگرام فقط یک بار ثبت می شود.
+ایده بان یک دفتر ایده فارسی برای تلگرام است. ثبت و دسته بندی، شاخه زدن، سوال های آماده و ترکیب دستی برای همه باز است. گزینه «هوش مصنوعی» فقط نام نویسی در لیست انتظار را باز می کند.
 
-## راه اندازی
+## استفاده
+
+- `/start` دکمه دفتر ایده ها، ایده جدید، سوال کمکی و لیست انتظار هوش مصنوعی را نشان می دهد.
+- متن و عکس در چت به شاخه فعال اضافه می شوند. برای جدا کردن یک ایده تازه، `/new` را بزنید.
+- برای انشعاب از یک پیام ثبت شده، روی همان پیام ریپلای کنید و `/branch` را بفرستید. از داخل دفتر ایده ها هم می توانید از هر جرقه شاخه بزنید.
+- مینی اپ امکان دیدن و نام گذاری شاخه ها، جستجو، ویرایش عنوان و دسته بندی و ترکیب دو ایده را دارد.
+- `/ai` ثبت نام اختیاری هوش مصنوعی را شروع می کند. `/cancel` انتخاب فعال را پاک می کند.
+
+## استقرار سرورلس روی Cloudflare Workers
+
+در این حالت Worker پیام های تلگرام را از مسیر `/telegram/webhook` می گیرد و ثبت نام ها را در D1 ذخیره می کند. polling پایتون را برای همین توکن متوقف کنید. اگر قبلا ثبت نامی در SQLite ذخیره شده، پیش از تغییر وب هوک آن را به جدول D1 منتقل کنید در صورتی که می خواهید آن ثبت نام ها را برای قابلیت هوش مصنوعی معتبر بدانید. ستون `registration_update_id` برای ردیف های قدیمی می تواند خالی بماند.
+
+با Node.js و حساب Cloudflare، ابتدا اجرا کنید.
 
 ```sh
-pip install -r requirements.txt
-export BOT_TOKEN="<your bot token>"
-python -m bot.main
+npx wrangler@4 login
+npx wrangler@4 d1 create idehban-waitlist
 ```
 
-دیتابیس پیش فرض `db.sqlite3` است. برای استقرار، `WAITLIST_DB_PATH` را به یک فایل روی فضای ذخیره سازی پایدار تنظیم کنید. مسیر پوشه باید از قبل وجود داشته باشد.
-
-## بررسی ثبت نام ها
-
-برای شمارش ثبت نام های تکمیل شده و مشاهده پاسخ ها، دستورهای زیر را روی سرور اجرا کنید. اگر مسیر دیتابیس را تغییر داده اید، همان مسیر را جایگزین کنید.
+شناسه دیتابیس خروجی را در `wrangler.jsonc` جایگزین کنید. سپس دستورات زیر را اجرا کنید. موقع ثبت Secret، مقدار توکن ربات و یک رشته تصادفی مستقل را وارد کنید. می توانید رشته تصادفی را با `openssl rand -hex 32` بسازید.
 
 ```sh
-sqlite3 db.sqlite3 'SELECT COUNT(*) FROM waitlist WHERE registered_at IS NOT NULL;'
-sqlite3 -header -csv db.sqlite3 'SELECT telegram_user_id, reason, registered_at FROM waitlist WHERE registered_at IS NOT NULL ORDER BY registered_at DESC;'
+npx wrangler@4 d1 migrations apply idehban-waitlist --remote
+npx wrangler@4 deploy
+npx wrangler@4 secret put BOT_TOKEN
+npx wrangler@4 secret put TELEGRAM_WEBHOOK_SECRET
 ```
 
-زمان ثبت به وقت UTC است. شناسه تلگرام برای اطلاع رسانی بعدی ذخیره می شود و ارسال اعلان در این نسخه پیاده سازی نشده است.
+برای ثبت وب هوک، `WORKER_URL` را روی آدرس HTTPS خروجی deploy تنظیم کنید. همان دو مقدار Secret را در محیط محلی در متغیرهای `BOT_TOKEN` و `TELEGRAM_WEBHOOK_SECRET` قرار دهید. این مقادیر را در مخزن ذخیره نکنید.
+
+```sh
+node --input-type=module <<'JS'
+const { BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET, WORKER_URL } = process.env;
+if (!BOT_TOKEN || !TELEGRAM_WEBHOOK_SECRET || !WORKER_URL) {
+  throw new Error("Set BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET and WORKER_URL first.");
+}
+const response = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/setWebhook`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    url: new URL("/telegram/webhook", WORKER_URL).href,
+    secret_token: TELEGRAM_WEBHOOK_SECRET,
+    allowed_updates: ["message", "callback_query"],
+    max_connections: 1,
+  }),
+});
+const result = await response.json();
+if (!response.ok || !result.ok) throw new Error("Telegram rejected the webhook.");
+console.log("Webhook configured.");
+JS
+```
+
+برای شمارش ثبت نام های تکمیل شده هوش مصنوعی و مشاهده پاسخ ها در نسخه سرورلس، این دستورها را اجرا کنید.
+
+```sh
+npx wrangler@4 d1 execute idehban-waitlist --remote --command 'SELECT COUNT(*) AS registrations FROM waitlist WHERE registered_at IS NOT NULL;'
+npx wrangler@4 d1 execute idehban-waitlist --remote --command 'SELECT telegram_user_id, reason, registered_at FROM waitlist WHERE registered_at IS NOT NULL ORDER BY registered_at DESC;'
+```
