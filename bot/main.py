@@ -1,76 +1,51 @@
 import asyncio
-import json
 import logging
 
-from aiogram import Bot, Dispatcher, Router, F
-from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram import Bot, Dispatcher, F, Router
+from aiogram.enums import ChatType
+from aiogram.filters import CommandStart
+from aiogram.types import Message
 
-from config import load_config
-from lines import LineManager
+from .config import load_config
+from .waitlist import Waitlist
 
 router = Router()
-lines = LineManager()
+router.message.filter(F.chat.type == ChatType.PRIVATE)
+
+PROMPT = "به ایده بان خوش آمدید! لطفا در یک خط بنویسید که می خواهید از ربات برای چه کاری استفاده کنید."
+CONFIRMATION = "شما به لیست انتظار ما اضافه شدید. به زودی دسترسی شما باز می شود و به شما اطلاع می دهیم."
+ALREADY_REGISTERED = "شما قبلا به لیست انتظار ایده بان اضافه شده اید. وقتی دسترسی شما باز شود، همین جا به شما اطلاع می دهیم."
 
 
 @router.message(CommandStart())
-async def cmd_start(message: Message) -> None:
-    config = load_config()
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text="Open Lines",
-                    web_app=WebAppInfo(url=config.webapp_url),
-                )
-            ]
-        ]
-    )
-    await message.answer(
-        "Welcome to Lines Bot! Use the button below to open the web app.",
-        reply_markup=keyboard,
-    )
+async def start(message: Message, waitlist: Waitlist) -> None:
+    pending = waitlist.start(message.from_user.id)
+    await message.answer(PROMPT if pending else ALREADY_REGISTERED)
 
 
-@router.message(F.web_app_data)
-async def on_web_app_data(message: Message) -> None:
-    """Handle data sent back from Telegram WebApp."""
-    try:
-        data = json.loads(message.web_app_data.data)
-    except Exception:  # pragma: no cover - robust to malformed data
-        await message.answer("Received invalid data from web app.")
+@router.message()
+async def receive_reason(message: Message, waitlist: Waitlist) -> None:
+    if message.from_user is None:
+        return
+    reason = (message.text or "").strip()
+    if not reason or len(reason.splitlines()) != 1 or reason.startswith("/"):
+        await message.answer("برای ثبت نام، /start را بزنید و پاسخ خود را در یک خط متنی بفرستید.")
         return
 
-    action = data.get("action")
-    if action == "create_line":
-        text = data.get("text", "").strip()
-        if not text:
-            await message.answer("No text received from web app.")
-            return
-        lines.add_line(message.from_user.id, text)
-        await message.answer(f"Line saved: {text}")
+    if waitlist.register(message.from_user.id, reason):
+        await message.answer(CONFIRMATION)
     else:
-        await message.answer("Unknown action from web app.")
-
-
-@router.message(Command("lines"))
-async def cmd_lines(message: Message) -> None:
-    """List stored lines for the user."""
-    user_lines = lines.list_lines(message.from_user.id)
-    if not user_lines:
-        await message.answer("You have no lines yet. Use the web app to add one.")
-        return
-    formatted = "\n".join(f"{i+1}. {t}" for i, t in enumerate(user_lines))
-    await message.answer(f"Your lines:\n{formatted}")
+        await message.answer("برای بررسی وضعیت ثبت نام یا شروع، /start را بزنید.")
 
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
     config = load_config()
+    waitlist = Waitlist(config.waitlist_db_path)
     bot = Bot(token=config.bot_token)
-    dp = Dispatcher()
-    dp.include_router(router)
-    await dp.start_polling(bot)
+    dispatcher = Dispatcher(waitlist=waitlist)
+    dispatcher.include_router(router)
+    await dispatcher.start_polling(bot)
 
 
 if __name__ == "__main__":

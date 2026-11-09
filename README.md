@@ -1,36 +1,24 @@
-# Lines Bot
+# ایده بان
 
-Telegram bot built with [aiogram](https://docs.aiogram.dev/) that demonstrates how
-to bring a simple **Lines** web application into Telegram using the Web Apps
-platform.
+نسخه فعلی ربات فارسی ایده بان برای ثبت نام در لیست انتظار است. کاربر در چت خصوصی با `/start` شروع می کند و در یک خط می نویسد برای چه کاری می خواهد از ربات استفاده کند. هر شناسه تلگرام فقط یک بار ثبت می شود.
 
-## Features
+## راه اندازی
 
-- `/start` command sends a button that opens a Web App.
-- Web App allows the user to submit short pieces of text ("lines").
-- Data from the Web App is delivered back to the bot and stored in memory.
-- `/lines` command lists saved lines for the current user.
+```sh
+pip install -r requirements.txt
+export BOT_TOKEN="<your bot token>"
+python -m bot.main
+```
 
-## Running the bot
+دیتابیس پیش فرض `db.sqlite3` است. برای استقرار، `WAITLIST_DB_PATH` را به یک فایل روی فضای ذخیره سازی پایدار تنظیم کنید. مسیر پوشه باید از قبل وجود داشته باشد.
 
-1. Install dependencies:
+## بررسی ثبت نام ها
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+برای شمارش ثبت نام های تکمیل شده و مشاهده پاسخ ها، دستورهای زیر را روی سرور اجرا کنید. اگر مسیر دیتابیس را تغییر داده اید، همان مسیر را جایگزین کنید.
 
-2. Set the environment variables:
+```sh
+sqlite3 db.sqlite3 'SELECT COUNT(*) FROM waitlist WHERE registered_at IS NOT NULL;'
+sqlite3 -header -csv db.sqlite3 'SELECT telegram_user_id, reason, registered_at FROM waitlist WHERE registered_at IS NOT NULL ORDER BY registered_at DESC;'
+```
 
-   ```bash
-   export BOT_TOKEN="<your bot token>"
-   export WEBAPP_URL="https://your-domain.example/webapp/index.html"
-   ```
-
-3. Start the bot:
-
-   ```bash
-   python -m bot.main
-   ```
-
-The `WEBAPP_URL` should point to the location where you host the contents of the
-`webapp/` directory.
+زمان ثبت به وقت UTC است. شناسه تلگرام برای اطلاع رسانی بعدی ذخیره می شود و ارسال اعلان در این نسخه پیاده سازی نشده است.
