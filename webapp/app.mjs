@@ -84,7 +84,7 @@ function input(value, max, placeholder = "") {
 
 async function openChat(branchId) {
   botName ??= (await api("bot")).username;
-  const url = `https://t.me/${botName}${branchId ? `?start=b_${branchId}` : "?start=new"}`;
+  const url = `https://t.me/${botName}?start=b_${branchId}`;
   telegram.openTelegramLink(url);
 }
 
@@ -95,7 +95,7 @@ async function showList() {
   const list = element("div", "", { class: "idea-grid" });
   const summary = element("p", "", { class: "muted result-count", "aria-live": "polite" });
   const intro = element("p", "جرقه هایت را ثبت کن و هر ایده را از همان جایی که رها کردی ادامه بده.", { class: "muted" });
-  const tools = row(button("ایده جدید", () => openChat(), true), button("ترکیب دو ایده", showMerge));
+  const tools = row(button("ایده جدید", showNewIdea, true), button("ترکیب دو ایده", showMerge));
   view.append(intro, tools, element("div", "", { class: "divider" }), search, summary, list);
   let revision = 0;
   let timer;
@@ -105,7 +105,7 @@ async function showList() {
     if (current !== page || version !== revision) return;
     list.replaceChildren();
     summary.textContent = `${new Intl.NumberFormat("fa").format(ideas.length)} ایده`;
-    if (!ideas.length) list.append(element("p", search.value ? "ایده ای پیدا نشد." : "اولین جرقه را با یک متن یا تصویر در چت ثبت کنید.", { class: "card empty muted" }));
+    if (!ideas.length) list.append(element("p", search.value ? "ایده ای پیدا نشد." : "برای ثبت اولین جرقه، «ایده جدید» را بزنید.", { class: "card empty muted" }));
     for (const idea of ideas) {
       const card = element("article", "", { class: "card idea-card" });
       card.append(element("h2", idea.title));
@@ -122,6 +122,39 @@ async function showList() {
     timer = setTimeout(() => load().catch((error) => { if (current === page) notice(error.message); }), 180);
   });
   await load();
+}
+
+function showNewIdea() {
+  const current = begin("ایده جدید");
+  const form = element("form", "", { class: "card stack" });
+  const title = input("", 120, "یک عنوان کوتاه");
+  title.required = true;
+  const text = element("textarea", "", { required: "", maxlength: "16000", placeholder: "جرقه ایده ات را بنویس." });
+  const submit = element("button", "ذخیره ایده", { type: "submit", class: "primary" });
+
+  form.append(field("عنوان", title), field("متن ایده", text),
+    row(submit, button("انصراف", showList)));
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    if (!title.value.trim() || !text.value.trim()) {
+      notice("عنوان و متن ایده را وارد کنید.");
+      return;
+    }
+
+    submit.disabled = true;
+    notice();
+    try {
+      const idea = await api("ideas", "POST", { title: title.value, text: text.value });
+      if (current === page) await showIdea(idea.id);
+    } catch (error) {
+      notice(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  view.append(form);
+  title.focus();
 }
 
 function branchSelect(idea, value) {

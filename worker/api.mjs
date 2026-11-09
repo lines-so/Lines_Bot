@@ -39,6 +39,21 @@ export async function api(request, env, url) {
   const [, , resource, id, action] = url.pathname.split("/");
   const method = request.method;
 
+  if (resource === "ideas" && !id && method === "POST") {
+    const body = await request.json().catch(() => null);
+    const title = clean(body?.title, 120);
+    const text = clean(body?.text, 16000);
+    if (!title || !text) return invalid();
+
+    const ideaId = crypto.randomUUID();
+    const branchId = crypto.randomUUID();
+    await db.batch([
+      ...ideaQueries(db, owner, ideaId, branchId, title),
+      entryQuery(db, branchId, text),
+    ]);
+    return json({ id: ideaId }, 201);
+  }
+
   if (resource === "ideas" && !id && method === "GET") {
     const term = (url.searchParams.get("q") ?? "").trim().slice(0, 120)
       .replace(/ي/gu, "ی").replace(/ك/gu, "ک").replace(/\u200c/gu, " ");
