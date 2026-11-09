@@ -14,17 +14,16 @@
 
 در این حالت Worker پیام های تلگرام را از مسیر `/telegram/webhook` می گیرد و ثبت نام ها را در D1 ذخیره می کند. polling پایتون را برای همین توکن متوقف کنید. اگر قبلا ثبت نامی در SQLite ذخیره شده، پیش از تغییر وب هوک آن را به جدول D1 منتقل کنید در صورتی که می خواهید آن ثبت نام ها را برای قابلیت هوش مصنوعی معتبر بدانید. ستون `registration_update_id` برای ردیف های قدیمی می تواند خالی بماند.
 
-با Node.js و حساب Cloudflare، ابتدا اجرا کنید.
+با Node.js و حساب Cloudflare، وارد حساب خود شوید. دیتابیس D1 از قبل در `wrangler.jsonc` تنظیم شده است.
 
 ```sh
 npx wrangler@4 login
-npx wrangler@4 d1 create idehban-waitlist
 ```
 
-شناسه دیتابیس خروجی را در `wrangler.jsonc` جایگزین کنید. سپس دستورات زیر را اجرا کنید. موقع ثبت Secret، مقدار توکن ربات و یک رشته تصادفی مستقل را وارد کنید. می توانید رشته تصادفی را با `openssl rand -hex 32` بسازید.
+سپس دستورات زیر را اجرا کنید. موقع ثبت Secret، مقدار توکن ربات و یک رشته تصادفی مستقل را وارد کنید. می توانید رشته تصادفی را با `openssl rand -hex 32` بسازید.
 
 ```sh
-npx wrangler@4 d1 migrations apply idehban-waitlist --remote
+npx wrangler@4 d1 migrations apply idehban --remote
 npx wrangler@4 deploy
 npx wrangler@4 secret put BOT_TOKEN
 npx wrangler@4 secret put TELEGRAM_WEBHOOK_SECRET
@@ -57,6 +56,6 @@ JS
 برای شمارش ثبت نام های تکمیل شده هوش مصنوعی و مشاهده پاسخ ها در نسخه سرورلس، این دستورها را اجرا کنید.
 
 ```sh
-npx wrangler@4 d1 execute idehban-waitlist --remote --command 'SELECT COUNT(*) AS registrations FROM waitlist WHERE registered_at IS NOT NULL;'
-npx wrangler@4 d1 execute idehban-waitlist --remote --command 'SELECT telegram_user_id, reason, registered_at FROM waitlist WHERE registered_at IS NOT NULL ORDER BY registered_at DESC;'
+npx wrangler@4 d1 execute idehban --remote --command 'SELECT COUNT(*) AS registrations FROM waitlist WHERE registered_at IS NOT NULL;'
+npx wrangler@4 d1 execute idehban --remote --command 'SELECT telegram_user_id, reason, registered_at FROM waitlist WHERE registered_at IS NOT NULL ORDER BY registered_at DESC;'
 ```
