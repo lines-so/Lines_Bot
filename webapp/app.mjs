@@ -1,6 +1,15 @@
 const telegram = window.Telegram?.WebApp;
 telegram?.ready();
 telegram?.expand();
+
+function syncTheme() {
+  document.documentElement.classList.toggle("dark", telegram?.colorScheme === "dark");
+  const background = getComputedStyle(document.documentElement).getPropertyValue("--chrome").trim();
+  if (telegram?.isVersionAtLeast?.("6.1")) telegram.setBackgroundColor(background);
+  if (telegram?.isVersionAtLeast?.("6.9")) telegram.setHeaderColor(background);
+}
+syncTheme();
+telegram?.onEvent?.("themeChanged", syncTheme);
 const view = document.querySelector("#view");
 const status = document.querySelector("#status");
 let page = 0;
@@ -75,7 +84,7 @@ function input(value, max, placeholder = "") {
 
 async function openChat(branchId) {
   botName ??= (await api("bot")).username;
-  const url = `https://t.me/${botName}${branchId ? `?start=b_${branchId}` : ""}`;
+  const url = `https://t.me/${botName}${branchId ? `?start=b_${branchId}` : "?start=new"}`;
   telegram.openTelegramLink(url);
 }
 
@@ -83,8 +92,11 @@ async function showList() {
   const current = begin("ایده های من");
   const search = input("", 120, "جستجو در عنوان، متن یا برچسب");
   search.setAttribute("aria-label", "جستجوی ایده ها");
-  const list = element("div", "", { class: "stack" });
-  view.append(row(button("ثبت در چت", () => openChat(), true), button("ترکیب دو ایده", showMerge)), search, list);
+  const list = element("div", "", { class: "idea-grid" });
+  const summary = element("p", "", { class: "muted result-count", "aria-live": "polite" });
+  const intro = element("p", "جرقه هایت را ثبت کن و هر ایده را از همان جایی که رها کردی ادامه بده.", { class: "muted" });
+  const tools = row(button("ایده جدید", () => openChat(), true), button("ترکیب دو ایده", showMerge));
+  view.append(intro, tools, element("div", "", { class: "divider" }), search, summary, list);
   let revision = 0;
   let timer;
   async function load() {
@@ -92,12 +104,15 @@ async function showList() {
     const ideas = await api(`ideas?q=${encodeURIComponent(search.value)}`);
     if (current !== page || version !== revision) return;
     list.replaceChildren();
-    if (!ideas.length) list.append(element("p", search.value ? "ایده ای پیدا نشد." : "اولین جرقه را با یک متن یا تصویر در چت ثبت کنید.", { class: "muted" }));
+    summary.textContent = `${new Intl.NumberFormat("fa").format(ideas.length)} ایده`;
+    if (!ideas.length) list.append(element("p", search.value ? "ایده ای پیدا نشد." : "اولین جرقه را با یک متن یا تصویر در چت ثبت کنید.", { class: "card empty muted" }));
     for (const idea of ideas) {
-      const card = element("article", "", { class: "card" });
+      const card = element("article", "", { class: "card idea-card" });
       card.append(element("h2", idea.title));
-      if (idea.medium || idea.tags) card.append(element("p", [idea.medium, idea.tags].filter(Boolean).join(" · "), { class: "muted" }));
-      card.append(button("باز کردن", () => showIdea(idea.id)));
+      if (idea.preview && idea.preview !== idea.title) card.append(element("p", idea.preview, { class: "preview muted" }));
+      const labels = [idea.medium, ...idea.tags.split(/[,،]/u)].map((label) => label.trim()).filter(Boolean);
+      if (labels.length) card.append(row(...labels.map((label) => element("span", label, { class: "badge" }))));
+      card.append(button("باز کردن ایده", () => showIdea(idea.id)));
       list.append(card);
     }
   }
@@ -152,15 +167,18 @@ async function showIdea(id, branchId) {
   if (idea.sources.length) view.append(row(element("small", "ترکیب شده از"), ...idea.sources.map((source) => button(source.title, () => showIdea(source.id)))));
   select.addEventListener("change", () => showIdea(id, select.value).catch((error) => notice(error.message)));
   const name = input(branch.name, 80);
-  view.append(field("شاخه گفتگو", select), row(name, button("ذخیره نام شاخه", async () => {
+  const branchPanel = element("section", "", { class: "card stack branch-panel" });
+  branchPanel.append(field("شاخه فعال", select), field("نام شاخه", name), button("ذخیره نام شاخه", async () => {
     await api(`branches/${branch.id}`, "PATCH", { name: name.value });
     await showIdea(id, branch.id);
-  })));
+  }));
+  view.append(branchPanel, element("h2", "جرقه های این شاخه", { class: "section-title" }));
   const entries = await api(`branches/${branch.id}`);
   if (current !== page) return;
   if (!entries.length) view.append(element("p", "این شاخه هنوز جرقه ای ندارد.", { class: "muted" }));
   for (const entry of entries) {
     const card = entryCard(entry, current);
+    if (entry.branch_id !== branch.id) card.prepend(element("small", "از مسیر مشترک", { class: "badge" }));
     card.append(button("ادامه در شاخه جدید", async () => {
       const fork = await api(`branches/${branch.id}/fork`, "POST", { entryId: entry.id });
       await showIdea(id, fork.id);
@@ -185,12 +203,20 @@ async function showMerge() {
     return select;
   });
   const sourceArea = element("div", "", { class: "stack" });
+  let loadedSources;
   view.append(...selections.map((select, index) => field(index ? "ایده دوم" : "ایده اول", select)), button("باز کردن دو منبع", async () => {
     const ids = selections.map((select) => select.value);
+    if (loadedSources && ids.every((id, index) => id === loadedSources[index])) return;
+    if (loadedSources && !window.confirm("با تغییر منابع، پیش نویس ترکیب فعلی پاک می شود. ادامه می دهید؟")) {
+      selections.forEach((select, index) => { select.value = loadedSources[index]; });
+      return;
+    }
     if (ids[0] === ids[1]) throw new Error("دو ایده متفاوت انتخاب کنید.");
     const sources = await Promise.all(ids.map((id) => api(`ideas/${id}`)));
     if (current !== page) return;
     sourceArea.replaceChildren();
+    const panels = element("div", "", { class: "source-grid" });
+    sourceArea.append(panels);
     const text = element("textarea", "", { maxlength: "16000", placeholder: "تکه های انتخابی را اینجا ویرایش و ترکیب کنید." });
     const title = input("", 120, "عنوان ایده جدید");
     const photos = new Set();
@@ -231,13 +257,16 @@ async function showMerge() {
       }
       select.addEventListener("change", () => render().catch((error) => notice(error.message)));
       panel.append(element("legend", source.title), select, cards);
-      sourceArea.append(panel);
+      panels.append(panel);
       await render();
     }
-    sourceArea.append(field("عنوان ایده تازه", title), field("متن ترکیب", text), button("ساخت ایده جدید", async () => {
+    const draft = element("section", "", { class: "card stack" });
+    draft.append(element("h2", "پیش نویس ترکیب"), field("عنوان ایده تازه", title), field("متن ترکیب", text), button("ساخت ایده جدید", async () => {
       const idea = await api("ideas/merge", "POST", { sources: ids, title: title.value, text: text.value, photos: [...photos] });
       await showIdea(idea.id);
     }, true));
+    sourceArea.append(draft);
+    loadedSources = ids;
   }), sourceArea);
 }
 

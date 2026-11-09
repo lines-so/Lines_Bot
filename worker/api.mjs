@@ -40,19 +40,24 @@ export async function api(request, env, url) {
   const method = request.method;
 
   if (resource === "ideas" && !id && method === "GET") {
-    const normalize = (value) => value.normalize("NFKC").replace(/[يك]/gu, (char) => char === "ي" ? "ی" : "ک").replace(/\u200c/gu, " ").toLowerCase();
-    const term = normalize((url.searchParams.get("q") ?? "").trim().slice(0, 120));
+    const term = (url.searchParams.get("q") ?? "").trim().slice(0, 120)
+      .replace(/ي/gu, "ی").replace(/ك/gu, "ک").replace(/\u200c/gu, " ");
     const { results } = await query(db, `
-      SELECT i.id, i.title, i.tags, i.medium FROM ideas i WHERE i.owner = ?
+      SELECT i.id, i.title, i.tags, i.medium,
+        (SELECT substr(e.body, 1, 240) FROM branches b JOIN entries e ON e.branch_id = b.id
+         WHERE b.idea_id = i.id AND b.parent_id IS NULL AND e.body <> '' ORDER BY e.id LIMIT 1) AS preview
+      FROM ideas i WHERE i.owner = ? AND (
+        ? = '' OR instr(lower(replace(replace(replace(
+          i.title || ' ' || i.tags || ' ' || i.medium, 'ي', 'ی'), 'ك', 'ک'), char(8204), ' ')), lower(?)) > 0
+        OR EXISTS (
+          SELECT 1 FROM branches b JOIN entries e ON e.branch_id = b.id
+          WHERE b.idea_id = i.id AND instr(lower(replace(replace(replace(
+            e.body, 'ي', 'ی'), 'ك', 'ک'), char(8204), ' ')), lower(?)) > 0
+        )
+      )
       ORDER BY i.created_at DESC, i.rowid DESC
-    `, owner).all();
-    if (!term) return json(results);
-    const { results: entries } = await query(db, `
-      SELECT b.idea_id, e.body FROM ideas i JOIN branches b ON b.idea_id = i.id
-      JOIN entries e ON e.branch_id = b.id WHERE i.owner = ?
-    `, owner).all();
-    const matches = new Set(entries.filter((entry) => normalize(entry.body).includes(term)).map((entry) => entry.idea_id));
-    return json(results.filter((idea) => matches.has(idea.id) || normalize([idea.title, idea.tags, idea.medium].join(" ")).includes(term)));
+    `, owner, term, term, term).all();
+    return json(results);
   }
 
   if (resource === "bot" && !id && method === "GET") {

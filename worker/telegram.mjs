@@ -20,8 +20,8 @@ export function telegramRequest(token, method, body) {
 export async function telegramReply(env, message, origin) {
   const db = env.DB;
   const owner = message.from.id;
-  const text = (message.text ?? message.caption ?? "").trim();
   const photo = message.photo?.at(-1)?.file_id ?? null;
+  const text = (message.text ?? (photo ? message.caption : "") ?? "").trim();
   const [command, argument] = (message.text ?? "").trim().split(/\s+/u);
   const state = await query(db, "SELECT * FROM chat_state WHERE owner = ?", owner).first();
   const options = { inline_keyboard: [
@@ -35,6 +35,10 @@ export async function telegramReply(env, message, origin) {
   if (processed) return { text: processed.reply, reply_markup: options };
   const remember = (reply) => query(db, "INSERT INTO telegram_actions (owner, message_id, reply) VALUES (?, ?, ?)", owner, message.message_id, reply);
 
+  if (command === "/new" || (command === "/start" && argument === "new")) {
+    await stateQuery(db, owner, "new").run();
+    return { text: "متن یا تصویر ایده تازه را بفرستید.", reply_markup: options };
+  }
   if (command === "/start") {
     if (argument?.startsWith("b_")) {
       const branch = await findBranch(db, owner, argument.slice(2));
@@ -42,11 +46,17 @@ export async function telegramReply(env, message, origin) {
       await stateQuery(db, owner, "idea", branch.id).run();
       return { text: `ادامه در «${branch.title}» / ${branch.name}. متن یا تصویر بفرستید.` };
     }
-    return { text: "به ایده بان خوش آمدید. برای ثبت جرقه، متن یا تصویر بفرستید. برای مرور و ترکیب، دفتر ایده ها را باز کنید. برای شاخه زدن روی یک پیام ثبت شده ریپلای کنید و /branch را بفرستید.", reply_markup: options };
-  }
-  if (command === "/new") {
-    await stateQuery(db, owner, "new").run();
-    return { text: "متن یا تصویر ایده تازه را بفرستید." };
+    const branch = state?.branch_id ? await findBranch(db, owner, state.branch_id) : null;
+    if (state?.mode === "ai") {
+      await stateQuery(db, owner, branch ? "idea" : "new", branch?.id).run();
+    }
+    const destination = branch
+      ? `پیام بعدی در «${branch.title}» / ${branch.name} ثبت می شود. برای ثبت جداگانه «ایده جدید» را بزنید.`
+      : "برای ثبت اولین جرقه، متن یا تصویر بفرستید.";
+    return {
+      text: `به ایده بان خوش آمدید.\n${destination}\nبرای شاخه زدن روی یک پیام ثبت شده ریپلای کنید و /branch را بفرستید.`,
+      reply_markup: options,
+    };
   }
   if (command === "/ai") {
     await query(db, "INSERT INTO waitlist (telegram_user_id) VALUES (?) ON CONFLICT DO NOTHING", owner).run();
@@ -56,6 +66,10 @@ export async function telegramReply(env, message, origin) {
     return { text: waitlistPrompt };
   }
   if (command === "/cancel") {
+    if (state?.mode === "ai" && state.branch_id) {
+      await stateQuery(db, owner, "idea", state.branch_id).run();
+      return { text: "ثبت نام لغو شد. پیام بعدی در شاخه قبلی ثبت می شود.", reply_markup: options };
+    }
     await query(db, "DELETE FROM chat_state WHERE owner = ?", owner).run();
     return { text: "انتخاب فعلی لغو شد.", reply_markup: options };
   }
