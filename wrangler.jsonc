@@ -5,8 +5,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "idehban-waitlist",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_name": "idehban",
+      "database_id": "06fc26ba-86d8-4a8c-b76f-73458622a839",
       "migrations_dir": "worker/migrations"
     }
   ],
